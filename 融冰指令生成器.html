@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>融冰指令生成器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", -apple-system, sans-serif;
+    background: linear-gradient(135deg, #1a2a3a 0%, #0f1c28 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: #e0e8f0;
+  }
+  .card {
+    background: #142230;
+    border: 1px solid #26384a;
+    border-radius: 14px;
+    padding: 32px;
+    width: 100%;
+    max-width: 560px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.4);
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: #4fc3f7; letter-spacing: 1px; }
+  .sub { font-size: 12px; color: #6b8299; margin-bottom: 26px; }
+  .field { margin-bottom: 18px; }
+  label { display: block; font-size: 13px; color: #8fa8bd; margin-bottom: 7px; }
+  label span { color: #4fc3f7; }
+  input, select {
+    width: 100%;
+    padding: 11px 13px;
+    background: #0c1722;
+    border: 1px solid #26384a;
+    border-radius: 8px;
+    color: #e0e8f0;
+    font-size: 15px;
+    font-family: "Consolas", monospace;
+    transition: border-color .2s;
+  }
+  input:focus, select:focus { outline: none; border-color: #4fc3f7; }
+  .row2 { display: flex; gap: 14px; }
+  .row2 .field { flex: 1; }
+  .quick { margin-bottom: 20px; }
+  .quick-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .quick-btns button {
+    padding: 6px 12px;
+    background: #0c1722;
+    border: 1px solid #26384a;
+    border-radius: 6px;
+    color: #8fa8bd;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .quick-btns button:hover { border-color: #4fc3f7; color: #4fc3f7; }
+  .gen {
+    width: 100%;
+    padding: 13px;
+    background: #4fc3f7;
+    color: #0c1722;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 2px;
+    transition: background .2s;
+  }
+  .gen:hover { background: #7fd4ff; }
+  .result {
+    margin-top: 22px;
+    padding: 16px;
+    background: #0c1722;
+    border: 1px solid #26384a;
+    border-radius: 8px;
+    display: none;
+  }
+  .result.show { display: block; }
+  .result-title { font-size: 12px; color: #6b8299; margin-bottom: 8px; }
+  .result-hex {
+    font-family: "Consolas", monospace;
+    font-size: 20px;
+    color: #ffd54f;
+    word-break: break-all;
+    padding: 10px;
+    background: #09141e;
+    border-radius: 6px;
+    margin-bottom: 14px;
+  }
+  .steps { font-size: 12px; line-height: 1.9; color: #8fa8bd; font-family: "Consolas", monospace; }
+  .steps b { color: #4fc3f7; font-weight: 400; }
+  .err { color: #ff6b6b; font-size: 13px; margin-top: 10px; display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>融冰指令生成器</h1>
+ 
+  <div class="field">
+    <label>设备号 <span>deviceId</span></label>
+    <input id="deviceId" type="text" value="meltice_01" placeholder="如 meltice_11234 或 11234">
+  </div>
+
+  <div class="quick">
+    <label>常用指令快捷选择</label>
+    <div class="quick-btns" id="quickBtns"></div>
+  </div>
+
+  <div class="row2">
+    <div class="field">
+      <label>指令标识 <span>Key</span></label>
+      <select id="key"></select>
+    </div>
+    <div class="field">
+      <label>Bit 位置 <span>Value</span></label>
+      <select id="value"></select>
+    </div>
+  </div>
+
+  <button class="gen" onclick="generate()">生 成 指 令</button>
+  <div class="err" id="err"></div>
+
+  <div class="result" id="result">
+    <div class="result-title">下发指令（Hex）</div>
+    <div class="result-hex" id="hexOut"></div>
+    <div class="steps" id="steps"></div>
+  </div>
+</div>
+
+<script>
+// flagMap 原表
+const flagMap = {
+  "A1": 8,  "A2": 9,
+  "B1": 10, "B2": 11, "B3": 12, "B4": 13,
+  "C1": 4,  "C2": 5,
+  "D1": 6,  "D2": 7,
+  "E1": 14,  "C9": 4, "E9": 14
+};
+const nameMap = {
+  A1:"接地刀闸合", A2:"接地刀闸分",
+  B1:"选相刀闸1合", B2:"选相刀闸1分",
+  B3:"选相刀闸2合", B4:"选相刀闸2分",
+  C1:"融冰刀闸合", C2:"融冰刀闸分",
+  D1:"闭锁", D2:"开锁",
+  E1:"泄放电阻开",E9:"泄放电阻关",C9:"急停"
+};
+
+// 下拉框联动
+const keySel = document.getElementById('key');
+const valSel = document.getElementById('value');
+Object.keys(flagMap).forEach(k => {
+  const o = new Option(k + '  (' + nameMap[k] + ')', k);
+  keySel.add(o);
+});
+for (let i = 0; i <= 15; i++) {
+  valSel.add(new Option('bit ' + i, i));
+}
+keySel.onchange = () => valSel.value = flagMap[keySel.value];
+
+// 快捷按钮
+const qb = document.getElementById('quickBtns');
+['A1','A2','B1','B2','B3','B4','C1','C2','D1','D2','E1','E9','C9'].forEach(k => {
+  const b = document.createElement('button');
+  b.textContent =  ' ' + nameMap[k];
+  b.onclick = () => { keySel.value = k; valSel.value = flagMap[k]; };
+  qb.appendChild(b);
+});
+
+// 二进制 -> int
+function binaryToInt(binStr) {
+  let p = binStr;
+  while (p.length < 16) p = '0' + p;
+  return parseInt(p.slice(-16), 2);
+}
+
+// CRC16 0xA001
+function crc16(ptr, len) {
+  let wcrc = 0xFFFF, index = 0;
+  for (let i = 0; i < len; i++) {
+    wcrc ^= ptr[index++];
+    for (let j = 0; j < 8; j++) {
+      if ((wcrc & 1) === 1) wcrc = (wcrc >> 1) ^ 0xA001;
+      else wcrc >>= 1;
+    }
+  }
+  return wcrc & 0xFFFF;
+}
+function crc(hex) {
+  const arr = [];
+  for (let i = 0; i < hex.length; i += 2)
+    arr.push(parseInt(hex.substring(i, i + 2), 16));
+  const v = crc16(arr, arr.length);
+  let h = v.toString(16).padStart(4, '0');
+  return h.substring(2, 4) + h.substring(0, 2);  // 低字节在前
+}
+
+function generate() {
+  const err = document.getElementById('err');
+  const result = document.getElementById('result');
+  err.style.display = 'none';
+  result.classList.remove('show');
+
+  let deviceId = document.getElementById('deviceId').value.trim();
+  const key = keySel.value;
+  const value = valSel.value;
+
+  console.log(key)
+  if (!deviceId) return showErr('请输入设备号');
+
+  // 数据区 16bit
+  let data = '0000000000000000';
+  let infoValue = '1';
+  if('E9' == key || 'C9' == key){
+    infoValue = '0';
+  }
+  let bin = data.substring(0, value) + infoValue + data.substring(parseInt(value) + 1, 16);
+
+  // 组装
+  let cmd = '5A47';
+  cmd += '05';
+  let id = deviceId.replace('meltice_', '');
+  cmd += id.substring(0, 1) + parseInt(id.substring(1), 10).toString(16).padStart(3, '0');
+  cmd += '00';
+  cmd += binaryToInt(bin).toString(16).padStart(4, '0');
+  const crcHex = crc(cmd);
+  cmd += crcHex;
+
+  document.getElementById('hexOut').textContent = cmd.toUpperCase();
+  document.getElementById('steps').innerHTML =
+    '<b>指令标识:</b> ' + key + ' → bit ' + value + ' 置 1<br>' +
+    '<b>数据区bin:</b> ' + bin + '<br>' +
+    '<b>数据区hex:</b> ' + binaryToInt(bin).toString(16).padStart(4,'0') + '<br>' +
+    '<b>帧头:</b> 5A47　<b>长度:</b> 05<br>' +
+    '<b>IMEI:</b> ' + id.substring(0, 1) + parseInt(id.substring(1), 10).toString(16).padStart(3,'0') + '<br>' +
+    '<b>帧类型:</b> 00　<b>CRC:</b> ' + crcHex;
+  result.classList.add('show');
+}
+
+function showErr(m) {
+  const err = document.getElementById('err');
+  err.textContent = m;
+  err.style.display = 'block';
+}
+</script>
+</body>
+</html>
