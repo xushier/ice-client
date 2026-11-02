@@ -10,7 +10,6 @@ export const DEFAULT_CONFIG: ServerConfig = {
   alignHourly: true,
   autoMode: false,
   autoDelaySec: 5,
-  autoParallel: true,
   autoReconnect: true,
   controlMode: 'remote',
   linkType: '4g',

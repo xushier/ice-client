@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
-import type { ModuleDto } from '../../core/types';
+import { useEffect, useRef, useState } from 'react';
+import type { ModuleDto, ServerConfig } from '../../core/types';
 import type { DeviceKind, DeviceState } from '../../protocol/types';
 import { DEFAULT_CONFIG } from '../../core/defaults';
-import { DEVICE_META, stateLabel } from '../../protocol/profiles';
+import { DEVICE_META, middleLabel, stateLabel } from '../../protocol/profiles';
 import { api } from '../api';
 import { useAction } from '../lib/actions';
 import { countdown, sideLabel, timeAgo } from '../lib/format';
 import { useNow } from '../lib/useNow';
-import { useUi } from '../store';
+import { useUi, type ThemeMode } from '../store';
+import type { TowerViewKey } from '../three/tower';
 import { HistoryIcon, LinkIcon, MonitorIcon, PlusIcon, UnplugIcon, WarnIcon } from './icons';
+import { TowerScene } from './TowerScene';
 import { EmptyState, StatusPill } from './ui';
 
 const MOVING_TO_SETTLED: Partial<Record<DeviceState, DeviceState>> = {
@@ -17,8 +19,6 @@ const MOVING_TO_SETTLED: Partial<Record<DeviceState, DeviceState>> = {
   locking: 'locked',
   unlocking: 'unlocked',
 };
-
-const SWITCH_KINDS: DeviceKind[] = ['ground1', 'ground2', 'phase1', 'phase2', 'phase3'];
 
 function settle(state: DeviceState | undefined): DeviceState | undefined {
   if (!state) return undefined;
@@ -29,12 +29,77 @@ function isMoving(state: DeviceState | undefined): boolean {
   return state !== undefined && MOVING_TO_SETTLED[state] !== undefined;
 }
 
-const ARM_Y = 208;
-const ARM_LEFT = 100;
-const ARM_RIGHT = 300;
-const PIVOT_Y = ARM_Y + 4;
-const ROD_LEN = 100;
-const SWITCH_Y = 424;
+/** 各设备与设置里「塔视图动画」对应的时长：接地 / 选相 animSwitchSec，融冰锁 animLockSec，融冰刀闸 animIceSec */
+function durationFor(kind: DeviceKind, config: ServerConfig): number {
+  if (kind === 'iceLock') return config.animLockSec;
+  if (kind === 'iceSwitch') return config.animIceSec;
+  return config.animSwitchSec;
+}
+
+/**
+ * 设备按钮过渡：模型上的动作要 animLockSec / animIceSec / animSwitchSec 秒才完成，
+ * 按钮若瞬间跳变会与模型割裂，因此这里按同样的时长、同样的缓动给按钮一个进度过程
+ * （文案显示「合闸中 / 分闸中 / 开锁中…」）。
+ */
+function useDeviceTransition(target: DeviceState | undefined, durationSec: number) {
+  const prev = useRef<DeviceState | undefined>(target);
+  const [anim, setAnim] = useState<{ progress: number; from: DeviceState } | null>(null);
+
+  useEffect(() => {
+    const from = prev.current;
+    prev.current = target;
+    if (!from || !target || from === target) return;
+    const duration = Math.max(0.25, durationSec) * 1000;
+    const start = performance.now();
+    let raf = 0;
+    setAnim({ progress: 0, from });
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      if (t >= 1) {
+        setAnim(null);
+        return;
+      }
+      /* 与模型同一缓动（正弦），进度条才和实物动作同步 */
+      setAnim({ progress: 0.5 - 0.5 * Math.cos(Math.PI * t), from });
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationSec]);
+
+  return anim;
+}
+
+interface DeviceChipProps {
+  kind: DeviceKind;
+  state: DeviceState | undefined;
+  durationSec: number;
+  disabled?: boolean;
+  onClick: () => void;
+}
+
+function DeviceChip({ kind, state, durationSec, disabled, onClick }: DeviceChipProps) {
+  const meta = DEVICE_META[kind];
+  const target = settle(state);
+  const anim = useDeviceTransition(kind === 'activation' ? undefined : target, durationSec);
+  const moving = anim !== null || isMoving(state);
+  const text = anim ? middleLabel(kind, anim.from) : stateLabel(kind, state);
+  const cls = moving ? 'moving' : target === meta.ice ? 'ice' : 'initial';
+  return (
+    <button
+      type="button"
+      className={`tower-chip ${cls}`}
+      disabled={disabled}
+      title={`点击切换 ${meta.label}`}
+      onClick={onClick}
+    >
+      <span className="chip-bar" style={{ width: `${Math.round((anim?.progress ?? 0) * 100)}%` }} />
+      <span className="chip-label">
+        {meta.short} · {text}
+      </span>
+    </button>
+  );
+}
 
 export function TowerGrid() {
   const snapshot = useUi((state) => state.snapshot);
@@ -52,7 +117,7 @@ export function TowerGrid() {
           </button>
         }
       >
-        塔视图按模块绘制 2.5D 铁塔与刀闸装置。请先新建模块，再切回塔视图查看。
+        塔视图按模块加载真型铁塔三维模型，可旋转、缩放并点击设备切换状态。请先新建模块，再切回塔视图查看。
       </EmptyState>
     );
   }
@@ -72,44 +137,17 @@ function TowerCard({ module }: { module: ModuleDto }) {
   const toggleMonitor = useUi((state) => state.toggleMonitor);
   const setActiveId = useUi((state) => state.setActiveId);
   const openDialog = useUi((state) => state.openDialog);
+  const theme = useUi((state) => state.theme);
   const { busy, run } = useAction();
   useNow();
+  const [focusOpen, setFocusOpen] = useState(false);
 
   const config = snapshot?.config ?? DEFAULT_CONFIG;
-  const [animate, setAnimate] = useState(false);
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => setAnimate(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
 
   const runtime = module.runtime;
   const online = runtime.link === 'online';
   const devices = module.devices;
   const pending = runtime.pending;
-  const sideRight = (module.id & 1) === 1;
-
-  const endX = sideRight ? ARM_RIGHT : ARM_LEFT;
-  const inward = sideRight ? -1 : 1;
-  const outward = -inward;
-  const ringX = endX + inward * ROD_LEN;
-  const lockX = endX + inward * 112;
-  const otherEndX = sideRight ? ARM_LEFT : ARM_RIGHT;
-
-  const iceIncluded = devices.includes('iceSwitch');
-  const lockIncluded = devices.includes('iceLock');
-  const activationIncluded = devices.includes('activation');
-
-  const iceState = module.states.iceSwitch;
-  const iceSettled = settle(iceState);
-  const iceClosed = iceSettled === 'closed';
-  const iceAngle = iceClosed ? 0 : inward > 0 ? -90 : 90;
-
-  const lockState = module.states.iceLock;
-  const lockSettled = settle(lockState);
-  const locked = lockSettled === 'locked';
-
-  const switchKinds = devices.filter((kind) => SWITCH_KINDS.includes(kind));
-  const switchPositions = switchKinds.map((_, index) => 200 + (index - (switchKinds.length - 1) / 2) * 46);
 
   const toggleDevice = (kind: DeviceKind) => {
     const meta = DEVICE_META[kind];
@@ -127,10 +165,9 @@ function TowerCard({ module }: { module: ModuleDto }) {
     void run(() => api.preset(module.id, kind), kind === 'initial' ? '已切换为初始态' : '已切换为融冰态');
   };
 
-  const transitionFor = (base: number) => (animate ? `transform ${base}s cubic-bezier(0.4, 0, 0.2, 1)` : 'none');
-
   return (
-    <article className="tower-card" id={`module-${module.id}`} onClick={() => setActiveId(module.id)}>
+    <>
+      <article className="tower-card" id={`module-${module.id}`} onClick={() => setActiveId(module.id)}>
       <div className="tower-stage">
         <div className="tower-label">
           <StatusPill link={runtime.link} error={runtime.error} />
@@ -145,209 +182,15 @@ function TowerCard({ module }: { module: ModuleDto }) {
           #{module.id} · {sideLabel(module.id)} · 收 {runtime.rx} / 发 {runtime.tx}
         </div>
 
-        <svg viewBox="0 0 400 500" role="img" aria-label={`${module.towerName} 铁塔视图`}>
-          <defs>
-            <linearGradient id="tw-steel" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#7a92ad" />
-              <stop offset="1" stopColor="#3f5674" />
-            </linearGradient>
-          </defs>
-
-          {/* 地线 */}
-          <path d="M 200 70 Q 110 106 10 66" stroke="#3f5674" strokeWidth={1.4} fill="none" />
-          <path d="M 200 70 Q 290 106 390 66" stroke="#3f5674" strokeWidth={1.4} fill="none" />
-
-          {/* 塔身 */}
-          <line x1="170" y1="470" x2="188" y2="70" stroke="url(#tw-steel)" strokeWidth={3.5} />
-          <line x1="230" y1="470" x2="212" y2="70" stroke="url(#tw-steel)" strokeWidth={3.5} />
-          {Array.from({ length: 11 }, (_, index) => {
-            const y = 90 + index * 38;
-            const half = 13 + 17 * ((y - 70) / 400);
-            return <line key={`r-${index}`} x1={200 - half} y1={y} x2={200 + half} y2={y} stroke="#3f5674" strokeWidth={1} />;
-          })}
-          {Array.from({ length: 10 }, (_, index) => {
-            const y1 = 90 + index * 38;
-            const y2 = y1 + 38;
-            const half1 = 13 + 17 * ((y1 - 70) / 400);
-            const half2 = 13 + 17 * ((y2 - 70) / 400);
-            return (
-              <g key={`x-${index}`}>
-                <line x1={200 - half1} y1={y1} x2={200 + half2} y2={y2} stroke="#2b3d52" strokeWidth={1} />
-                <line x1={200 + half1} y1={y1} x2={200 - half2} y2={y2} stroke="#2b3d52" strokeWidth={1} />
-              </g>
-            );
-          })}
-          <rect x={190} y={62} width={20} height={10} rx={2} fill="#5b7695" />
-
-          {/* 横担 */}
-          <line x1={ARM_LEFT} y1={ARM_Y} x2={ARM_RIGHT} y2={ARM_Y} stroke="url(#tw-steel)" strokeWidth={5} />
-          <line x1={200} y1={ARM_Y - 30} x2={ARM_LEFT} y2={ARM_Y} stroke="#3f5674" strokeWidth={2} />
-          <line x1={200} y1={ARM_Y - 30} x2={ARM_RIGHT} y2={ARM_Y} stroke="#3f5674" strokeWidth={2} />
-
-          {/* 两侧跳线 */}
-          <path
-            d={`M ${ARM_LEFT} ${ARM_Y} Q ${ARM_LEFT - 18} 258 ${ARM_LEFT - 8} ${PIVOT_Y + ROD_LEN + 6}`}
-            stroke="#7c93ad"
-            strokeWidth={2}
-            fill="none"
-          />
-          <path
-            d={`M ${ARM_RIGHT} ${ARM_Y} Q ${ARM_RIGHT + 18} 258 ${ARM_RIGHT + 8} ${PIVOT_Y + ROD_LEN + 6}`}
-            stroke="#7c93ad"
-            strokeWidth={2}
-            fill="none"
-          />
-
-          {!iceIncluded ? (
-            <text x={otherEndX} y={ARM_Y + 26} textAnchor="middle" fontSize={8} fill="#5f7290">
-              该侧无本模块装置
-            </text>
-          ) : null}
-
-          {/* 融冰刀闸 */}
-          {iceIncluded ? (
-            <g className="tower-clickable" onClick={() => toggleDevice('iceSwitch')}>
-              <rect className="tw-hit" x={endX - 22} y={ARM_Y - 22} width={44} height={28} rx={5} />
-              <rect x={endX - 15} y={ARM_Y - 16} width={30} height={16} rx={3} fill="#33475e" stroke="#5b7695" strokeWidth={0.9} />
-              <text x={endX} y={ARM_Y - 4} textAnchor="middle" fontSize={7.5} fill="#93a6c0">
-                电机
-              </text>
-              <circle cx={endX} cy={PIVOT_Y} r={6.5} fill="#25384e" stroke="#7dd3fc" strokeWidth={1.2} />
-              <g
-                style={{
-                  transformBox: 'view-box',
-                  transformOrigin: `${endX}px ${PIVOT_Y}px`,
-                  transform: `rotate(${iceAngle}deg)`,
-                  transition: transitionFor(config.animIceSec),
-                }}
-              >
-                <rect x={endX - 3} y={PIVOT_Y} width={6} height={ROD_LEN} rx={2.5} fill="#7dd3fc" opacity={0.88} />
-                <circle cx={endX} cy={PIVOT_Y + ROD_LEN} r={6} fill="none" stroke="#7dd3fc" strokeWidth={2} />
-                <rect className="tw-hit" x={endX - 11} y={PIVOT_Y + 12} width={22} height={ROD_LEN - 12} rx={6} />
-              </g>
-              <text x={endX} y={ARM_Y + 34} textAnchor="middle" fontSize={8} fill={isMoving(iceState) ? '#fbbf24' : '#93a6c0'}>
-                融冰刀闸 · {stateLabel('iceSwitch', iceState)}
-              </text>
-            </g>
-          ) : null}
-
-          {/* 融冰锁 */}
-          {lockIncluded ? (
-            <g className="tower-clickable" onClick={() => toggleDevice('iceLock')}>
-              <rect
-                className="tw-hit"
-                x={Math.min(ringX, lockX) - 6}
-                y={ARM_Y - 16}
-                width={Math.abs(lockX - ringX) + 34}
-                height={32}
-                rx={5}
-              />
-              <rect
-                x={lockX + inward * 10 - 10}
-                y={PIVOT_Y - 7}
-                width={20}
-                height={14}
-                rx={3}
-                fill="#33475e"
-                stroke="#5b7695"
-                strokeWidth={0.9}
-              />
-              <rect
-                x={Math.min(ringX, lockX)}
-                y={PIVOT_Y - 3}
-                width={Math.abs(lockX - ringX)}
-                height={6}
-                rx={2}
-                fill="#f59e0b"
-                style={{
-                  transformBox: 'view-box',
-                  transformOrigin: `${lockX}px ${PIVOT_Y}px`,
-                  transform: `scaleX(${locked ? 1 : 0.15})`,
-                  transition: transitionFor(config.animLockSec),
-                }}
-              />
-              <text x={lockX + inward * 10} y={PIVOT_Y + 30} textAnchor="middle" fontSize={8} fill={isMoving(lockState) ? '#fbbf24' : '#93a6c0'}>
-                融冰锁 · {stateLabel('iceLock', lockState)}
-              </text>
-            </g>
-          ) : null}
-
-          {/* 接地 / 选相刀闸 */}
-          <line
-            x1={(switchPositions[0] ?? 200) - 28}
-            y1={SWITCH_Y}
-            x2={(switchPositions[switchPositions.length - 1] ?? 200) + 28}
-            y2={SWITCH_Y}
-            stroke="#2b3d52"
-            strokeWidth={2}
-          />
-          {switchKinds.map((kind, index) => {
-            const x = switchPositions[index] ?? 200;
-            const meta = DEVICE_META[kind];
-            const state = module.states[kind];
-            const settled = settle(state);
-            const open = settled === 'open';
-            const moving = isMoving(state);
-            const color = moving ? '#fbbf24' : open ? '#64748b' : '#4ade80';
-            return (
-              <g key={kind} className="tower-clickable" onClick={() => toggleDevice(kind)}>
-                <rect className="tw-hit" x={x - 24} y={SWITCH_Y - 16} width={48} height={50} rx={6} />
-                <rect x={x + 12} y={SWITCH_Y - 4} width={14} height={8} rx={1.5} fill="#33475e" stroke="#5b7695" strokeWidth={0.8} />
-                <g
-                  style={{
-                    transformBox: 'view-box',
-                    transformOrigin: `${x - 18}px ${SWITCH_Y}px`,
-                    transform: `rotate(${open ? -42 : 0}deg)`,
-                    transition: transitionFor(config.animSwitchSec),
-                  }}
-                >
-                  <rect x={x - 18} y={SWITCH_Y - 3} width={36} height={6} rx={2} fill={color} />
-                </g>
-                <circle cx={x - 18} cy={SWITCH_Y} r={3.2} fill="#93a6c0" />
-                <text x={x} y={SWITCH_Y + 24} textAnchor="middle" fontSize={8.5} fill="#93a6c0">
-                  {meta.short}
-                </text>
-                <text x={x} y={SWITCH_Y + 35} textAnchor="middle" fontSize={8} fill={color}>
-                  {stateLabel(kind, state)}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* 电池活化 */}
-          {activationIncluded ? (
-            <g className="tower-clickable" onClick={() => toggleDevice('activation')}>
-              <rect className="tw-hit" x={sideRight ? 310 : 58} y={416} width={64} height={40} rx={6} />
-              <rect
-                x={sideRight ? 324 : 66}
-                y={426}
-                width={28}
-                height={16}
-                rx={3}
-                fill="#0d1725"
-                stroke={module.states.activation === 'on' ? '#f87171' : '#4ade80'}
-                strokeWidth={1.2}
-              />
-              <path
-                d={`M ${sideRight ? 338 : 80} 429 l -4 6 h 4 l -2 5 l 5 -7 h -4 z`}
-                fill={module.states.activation === 'on' ? '#f87171' : '#4ade80'}
-              />
-              <text
-                x={sideRight ? 352 : 94}
-                y={450}
-                textAnchor="middle"
-                fontSize={8}
-                fill={module.states.activation === 'on' ? '#f87171' : '#4ade80'}
-              >
-                活化 {module.states.activation === 'on' ? '开' : '关'}
-              </text>
-            </g>
-          ) : null}
-
-          <text x={200} y={492} textAnchor="middle" fontSize={8} fill="#3f5674">
-            40m
-          </text>
-        </svg>
+        <TowerScene
+          module={module}
+          animIceSec={config.animIceSec}
+          animSwitchSec={config.animSwitchSec}
+          animLockSec={config.animLockSec}
+          theme={theme}
+          onToggle={toggleDevice}
+        />
+        <div className="tower-hint">拖动旋转 · 滚轮缩放 · 右键平移 · 点击设备切换</div>
       </div>
 
       {runtime.error ? (
@@ -386,25 +229,16 @@ function TowerCard({ module }: { module: ModuleDto }) {
         ))}
 
         <div className="tower-devices">
-          {devices.map((kind) => {
-            const meta = DEVICE_META[kind];
-            const state = module.states[kind];
-            const settled = settle(state);
-            const moving = isMoving(state);
-            const cls = moving ? 'moving' : settled === meta.ice ? 'ice' : 'initial';
-            return (
-              <button
-                type="button"
-                key={kind}
-                className={`tower-chip ${cls}`}
-                disabled={busy}
-                title={`点击切换 ${meta.label}`}
-                onClick={() => toggleDevice(kind)}
-              >
-                {meta.short} · {stateLabel(kind, state)}
-              </button>
-            );
-          })}
+          {devices.map((kind) => (
+            <DeviceChip
+              key={kind}
+              kind={kind}
+              state={module.states[kind]}
+              durationSec={durationFor(kind, config)}
+              disabled={busy}
+              onClick={() => toggleDevice(kind)}
+            />
+          ))}
         </div>
 
         <div className="row wrap">
@@ -450,6 +284,9 @@ function TowerCard({ module }: { module: ModuleDto }) {
             监视
           </button>
           <span className="grow" />
+          <button type="button" className="btn btn-sm" onClick={() => setFocusOpen(true)}>
+            全屏
+          </button>
           <button
             type="button"
             className="btn btn-sm btn-ghost"
@@ -472,5 +309,129 @@ function TowerCard({ module }: { module: ModuleDto }) {
         </div>
       </div>
     </article>
+
+      {focusOpen ? (
+        <TowerFocus
+          module={module}
+          config={config}
+          theme={theme}
+          onToggle={toggleDevice}
+          onClose={() => setFocusOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+const FOCUS_VIEWS: Array<{ view: TowerViewKey; label: string }> = [
+  { view: 'overview', label: '全景' },
+  { view: 'mid', label: '中景' },
+  { view: 'iceSwitch', label: '融冰刀闸' },
+  { view: 'iceLock', label: '融冰锁' },
+  { view: 'jumper', label: '跳线 / 引流器' },
+  { view: 'ground1', label: '接地刀闸' },
+  { view: 'phase1', label: '选相 1' },
+];
+
+interface TowerFocusProps {
+  module: ModuleDto;
+  config: ServerConfig;
+  theme: ThemeMode;
+  onToggle: (kind: DeviceKind) => void;
+  onClose: () => void;
+}
+
+/** 全屏塔视图：进入浏览器全屏 + 设备快捷视角 + 动作自动跟随 */
+function TowerFocus({ module, config, theme, onToggle, onClose }: TowerFocusProps) {
+  /* 打开即进入浏览器全屏（点击「全屏」即用户手势，可直接申请）；关闭时退出全屏 */
+  const [focus, setFocus] = useState<{ view: TowerViewKey; seq: number }>({ view: 'overview', seq: 0 });
+  const [panMode, setPanMode] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    root?.requestFullscreen?.().catch(() => {
+      /* 用户或权限拒绝时保持覆盖层（本身已是整屏） */
+    });
+    return () => {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="tower-focus" ref={rootRef} onClick={(event) => event.stopPropagation()}>
+      <div className="tower-focus-head">
+        <StatusPill link={module.runtime.link} error={module.runtime.error} />
+        <span className="card-title" style={{ fontSize: 14 }}>
+          {module.towerName}
+        </span>
+        <span className={`tag${module.protocol === 'mg500' ? ' tag-purple' : ''}`}>
+          {module.protocol.toUpperCase()}
+        </span>
+        <span className="faint mono">
+          #{module.id} · {sideLabel(module.id)}
+        </span>
+        <span className="grow" />
+        <button type="button" className="btn btn-sm" onClick={onClose}>
+          关闭
+        </button>
+      </div>
+
+      <div className="tower-focus-stage">
+        <TowerScene
+          module={module}
+          animIceSec={config.animIceSec}
+          animSwitchSec={config.animSwitchSec}
+          animLockSec={config.animLockSec}
+          theme={theme}
+          onToggle={onToggle}
+          focus={focus}
+          autoFollow={config.autoMode}
+          panMode={panMode}
+        />
+        <div className="tower-hint">
+          {panMode ? '拖动平移 · 滚轮缩放 · 点击设备切换' : '拖动旋转 · 滚轮缩放 · 右键平移 · 点击设备切换'}
+        </div>
+      </div>
+
+      <div className="tower-focus-bar">
+        <button
+          type="button"
+          className={`btn btn-sm${panMode ? ' btn-primary' : ''}`}
+          title="切换左键拖动为平移，便于把塔顶 / 塔底拖到画面中心再放大"
+          onClick={() => setPanMode((value) => !value)}
+        >
+          平移
+        </button>
+        {FOCUS_VIEWS.map((item) => (
+          <button
+            key={item.view}
+            type="button"
+            className={`btn btn-sm${focus.view === item.view ? ' btn-primary' : ''}`}
+            onClick={() => setFocus((prev) => ({ view: item.view, seq: prev.seq + 1 }))}
+          >
+            {item.label}
+          </button>
+        ))}
+        <span className="grow" />
+        {module.devices.map((kind) => (
+          <DeviceChip
+            key={kind}
+            kind={kind}
+            state={module.states[kind]}
+            durationSec={durationFor(kind, config)}
+            onClick={() => onToggle(kind)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }

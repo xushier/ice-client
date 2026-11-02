@@ -3,6 +3,7 @@ import { api } from './api';
 import type { AppSnapshot, FrameLog } from '../core/types';
 
 export type ViewMode = 'card' | 'tower';
+export type ThemeMode = 'dark' | 'light';
 export type WsState = 'connecting' | 'open' | 'closed';
 export type DialogState =
   | { kind: 'new' }
@@ -23,15 +24,19 @@ interface UiState {
   frames: Record<number, FrameLog[]>;
   framesPaused: boolean;
   view: ViewMode;
+  theme: ThemeMode;
   sidebarCollapsed: boolean;
   monitorOpen: boolean;
   activeId: number | null;
   dialog: DialogState;
   toasts: Toast[];
   booted: boolean;
+  /** 首次拉取失败时的原因，界面据此提示「服务端未响应，正在重试」 */
+  bootError: string | null;
 
   setSnapshot: (snapshot: AppSnapshot) => void;
   setView: (view: ViewMode) => void;
+  toggleTheme: () => void;
   toggleSidebar: () => void;
   toggleMonitor: () => void;
   setActiveId: (id: number) => void;
@@ -47,11 +52,20 @@ interface UiState {
 }
 
 function readView(): ViewMode {
+  /* 每次打开页面都从塔视图进入（用户仍可在顶栏切到卡片视图，但刷新后回到塔视图） */
+  return 'tower';
+}
+
+function readTheme(): ThemeMode {
   try {
-    return localStorage.getItem('ice-view') === 'tower' ? 'tower' : 'card';
+    return localStorage.getItem('ice-theme') === 'light' ? 'light' : 'dark';
   } catch {
-    return 'card';
+    return 'dark';
   }
+}
+
+function applyTheme(theme: ThemeMode): void {
+  document.documentElement.dataset.theme = theme;
 }
 
 let toastSeq = 0;
@@ -66,12 +80,14 @@ export const useUi = create<UiState>((set, get) => ({
   frames: {},
   framesPaused: false,
   view: readView(),
+  theme: readTheme(),
   sidebarCollapsed: false,
   monitorOpen: false,
   activeId: null,
   dialog: null,
   toasts: [],
   booted: false,
+  bootError: null,
 
   setSnapshot: (snapshot) => {
     const activeId = get().activeId;
@@ -79,6 +95,7 @@ export const useUi = create<UiState>((set, get) => ({
     set({
       snapshot,
       booted: true,
+      bootError: null,
       activeId: exists ? activeId : snapshot.modules[0]?.id ?? null,
       wsState: socket?.readyState === WebSocket.OPEN ? 'open' : get().wsState,
     });
@@ -89,6 +106,17 @@ export const useUi = create<UiState>((set, get) => ({
     set({ view });
     try {
       localStorage.setItem('ice-view', view);
+    } catch {
+      // 忽略隐私模式
+    }
+  },
+
+  toggleTheme: () => {
+    const theme: ThemeMode = get().theme === 'dark' ? 'light' : 'dark';
+    applyTheme(theme);
+    set({ theme });
+    try {
+      localStorage.setItem('ice-theme', theme);
     } catch {
       // 忽略隐私模式
     }
@@ -183,11 +211,17 @@ function connectSocket(): void {
 export async function bootstrap(): Promise<void> {
   if (started) return;
   started = true;
-  try {
-    const snapshot = await api.state();
-    useUi.getState().setSnapshot(snapshot);
-  } catch (error) {
-    useUi.getState().toast(`读取状态失败：${(error as Error).message}`, 'err');
+  applyTheme(useUi.getState().theme);
+  /* 服务端可能比前端晚起来：失败后持续重试，连上就自动进入界面 */
+  for (;;) {
+    try {
+      const snapshot = await api.state();
+      useUi.getState().setSnapshot(snapshot);
+      break;
+    } catch (error) {
+      useUi.setState({ bootError: (error as Error).message });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
   }
   connectSocket();
   setInterval(() => {

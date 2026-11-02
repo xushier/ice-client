@@ -58,7 +58,6 @@ function normalizeConfig(input: Partial<ServerConfig> | undefined, base: ServerC
     alignHourly: asBool(src.alignHourly, base.alignHourly),
     autoMode: asBool(src.autoMode, base.autoMode),
     autoDelaySec: clampInt(src.autoDelaySec, 0, 600, base.autoDelaySec),
-    autoParallel: asBool(src.autoParallel, base.autoParallel),
     autoReconnect: asBool(src.autoReconnect, base.autoReconnect),
     controlMode: src.controlMode === 'local' || src.controlMode === 'remote' ? src.controlMode : base.controlMode,
     linkType: src.linkType === 'fiber' || src.linkType === '4g' ? src.linkType : base.linkType,
@@ -327,9 +326,30 @@ export class Store {
       this.saveTimer = null;
     }
     const tmp = `${this.configPath}.tmp`;
-    await fs.mkdir(this.dataDir, { recursive: true });
-    await fs.writeFile(tmp, JSON.stringify(this.exportState(), null, 2), 'utf8');
-    await fs.rename(tmp, this.configPath);
+    let payload: string;
+    try {
+      await fs.mkdir(this.dataDir, { recursive: true });
+      payload = JSON.stringify(this.exportState(), null, 2);
+      await fs.writeFile(tmp, payload, 'utf8');
+    } catch {
+      return;
+    }
+    /* Windows 上目标文件可能被杀软、同步盘或编辑器短暂占用，rename 会抛 EPERM/EACCES。
+       重试几次后退化为直接覆盖写：持久化失败不应该让整个服务进程退出。 */
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        await fs.rename(tmp, this.configPath);
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 60 * (attempt + 1)));
+      }
+    }
+    try {
+      await fs.writeFile(this.configPath, payload, 'utf8');
+    } catch {
+      // 实在写不进去就保留内存状态
+    }
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
   }
 }
 

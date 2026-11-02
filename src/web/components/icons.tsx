@@ -172,6 +172,24 @@ export const SunIcon = (props: IconProps) => (
   </Svg>
 );
 
+export const MoonIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+  </Svg>
+);
+
+/** 品牌标识：融化的冰块 / 雨滴 */
+export const IceDropIcon = (props: IconProps) => (
+  <svg width={props.size ?? 16} height={props.size ?? 16} viewBox="0 0 24 24" aria-hidden="true" {...props}>
+    <path
+      d="M12 2.4c3.1 3.6 6.4 7.2 6.4 11.1A6.4 6.4 0 0 1 5.6 13.5c0-3.9 3.3-7.5 6.4-11.1Z"
+      fill="currentColor"
+      opacity="0.92"
+    />
+    <path d="M9.2 13.6c0 1.7 1.2 2.9 2.6 2.9" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.75" />
+  </svg>
+);
+
 export const ClockIcon = (props: IconProps) => (
   <Svg {...props}>
     <circle cx="12" cy="12" r="9" />

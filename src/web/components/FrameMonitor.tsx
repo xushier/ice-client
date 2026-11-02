@@ -126,12 +126,12 @@ export function FrameMonitor() {
                   <div className="kv">
                     长度 <b>{frame.hex.split(' ').length}</b> · 模块 ID <b>{frame.id}</b> · 类型{' '}
                     <b>0x{frame.type.toString(16).padStart(2, '0').toUpperCase()}</b> · CRC{' '}
-                    <b style={{ color: frame.crcOk ? '#4ade80' : '#f87171' }}>{frame.crcOk ? '通过' : '错误'}</b>
+                    <b style={{ color: frame.crcOk ? 'var(--ok)' : 'var(--danger)' }}>{frame.crcOk ? '通过' : '错误'}</b>
                   </div>
                   {detailLines(frame, module?.protocol ?? 'mg500').map((line, lineIndex) => (
                     <div key={lineIndex}>{line}</div>
                   ))}
-                  {frame.error ? <div style={{ color: '#fca5a5' }}>{frame.error}</div> : null}
+                  {frame.error ? <div style={{ color: 'var(--danger-soft)' }}>{frame.error}</div> : null}
                   <code>{frame.hex}</code>
                   <button type="button" className="btn btn-sm" style={{ marginTop: 5 }} onClick={() => void copy(frame.hex)}>
                     <CopyIcon size={11} />
@@ -150,7 +150,7 @@ export function FrameMonitor() {
         </div>
         <div>
           最近状态 <b>{module ? `${module.runtime.rx} 收 / ${module.runtime.tx} 发` : '—'}</b>
-          {framesPaused ? <span style={{ color: '#fbbf24' }}> · 已暂停</span> : null}
+          {framesPaused ? <span style={{ color: 'var(--warn)' }}> · 已暂停</span> : null}
         </div>
       </div>
     </aside>

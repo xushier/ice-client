@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ModuleDto, Telemetry } from '../../core/types';
 import type { DeviceKind, DeviceState } from '../../protocol/types';
-import { DEVICE_META, middleLabel, stateLabel } from '../../protocol/profiles';
+import { DEVICE_META, actionForState, middleLabel, stateLabel } from '../../protocol/profiles';
 import { api } from '../api';
 import { useAction } from '../lib/actions';
 import { countdown, duration, sideLabel, timeAgo } from '../lib/format';
@@ -67,14 +67,20 @@ function isMoving(state: DeviceState | undefined): boolean {
   return state !== undefined && MOVING_TO_SETTLED[state] !== undefined;
 }
 
-function middleTarget(device: DeviceKind, state: DeviceState | undefined): DeviceState {
-  const settled = state ? MOVING_TO_SETTLED[state] : undefined;
-  if (settled) return settled;
+/** 中间动作按钮的目标态：当前到位态的反向态（合闸 / 分闸 / 开锁 / 闭锁） */
+function actionTarget(device: DeviceKind, state: DeviceState | undefined): DeviceState {
   const meta = DEVICE_META[device];
-  const target = state === meta.ice ? meta.initial : meta.ice;
-  if (device === 'iceLock') return target === 'locked' ? 'locking' : 'unlocking';
-  if (device === 'activation') return target;
-  return target === 'closed' ? 'closing' : 'opening';
+  const settled = state ? (MOVING_TO_SETTLED[state] ?? state) : meta.initial;
+  return settled === meta.ice ? meta.initial : meta.ice;
+}
+
+/** 中间按钮文案：到位时显示下一步动作（合闸 / 分闸），动作中显示合闸中 / 分闸中 */
+function actionLabel(device: DeviceKind, state: DeviceState | undefined): string {
+  if (device === 'activation') return '—';
+  if (isMoving(state)) return middleLabel(device, state);
+  const meta = DEVICE_META[device];
+  const target = actionTarget(device, state);
+  return meta.verbs[actionForState(device, target)] ?? stateLabel(device, target);
 }
 
 export function ModuleCard({ module }: { module: ModuleDto }) {
@@ -348,10 +354,16 @@ export function ModuleCard({ module }: { module: ModuleDto }) {
                     type="button"
                     className={`tri-mid${moving ? ' active' : ''}`}
                     disabled={busy || device === 'activation'}
-                    title={device === 'activation' ? '活化无动作中状态' : '模拟动作中（上报为双位 0）'}
-                    onClick={() => setDevice(device, middleTarget(device, state))}
+                    title={
+                      device === 'activation'
+                        ? '活化无动作中状态'
+                        : isMoving(state)
+                          ? '动作中，等待动画结束'
+                          : `执行${actionLabel(device, state)}`
+                    }
+                    onClick={() => setDevice(device, actionTarget(device, state))}
                   >
-                    {middleLabel(device, state)}
+                    {actionLabel(device, state)}
                   </button>
                   <button
                     type="button"

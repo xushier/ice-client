@@ -11,6 +11,7 @@ import { Toasts } from './components/Toasts';
 
 export function App() {
   const booted = useUi((state) => state.booted);
+  const bootError = useUi((state) => state.bootError);
   const snapshot = useUi((state) => state.snapshot);
   const view = useUi((state) => state.view);
   const dialog = useUi((state) => state.dialog);
@@ -20,6 +21,7 @@ export function App() {
       <div className="loading">
         <span className="spinner" />
         正在读取服务端状态…
+        {bootError ? <span className="loading-hint">服务端未响应（{bootError}），正在重试…</span> : null}
       </div>
     );
   }

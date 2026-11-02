@@ -4,11 +4,14 @@ import { useUi } from '../store';
 import {
   CodeIcon,
   GridIcon,
+  IceDropIcon,
   LinkIcon,
   MonitorIcon,
+  MoonIcon,
   PlusIcon,
   ServerIcon,
   SettingsIcon,
+  SunIcon,
   TowerIcon,
   UnplugIcon,
 } from './icons';
@@ -22,6 +25,8 @@ export function TopBar() {
   const toggleMonitor = useUi((state) => state.toggleMonitor);
   const openDialog = useUi((state) => state.openDialog);
   const activeId = useUi((state) => state.activeId);
+  const theme = useUi((state) => state.theme);
+  const toggleTheme = useUi((state) => state.toggleTheme);
   const { busy, run } = useAction();
 
   const modules = snapshot?.modules ?? [];
@@ -34,10 +39,12 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="brand">
-        <div className="brand-mark">冰</div>
+        <div className="brand-mark">
+          <IceDropIcon size={17} />
+        </div>
         <div>
           <div className="brand-title">融冰终端模拟器</div>
-          <div className="brand-sub">MG400 / MG500 · TERMINAL SIMULATOR</div>
+          <div className="brand-sub">MELTICE SIMULATOR</div>
         </div>
       </div>
 
@@ -107,6 +114,14 @@ export function TopBar() {
         <button type="button" className="btn btn-sm" onClick={() => openDialog({ kind: 'builder' })}>
           <CodeIcon size={12} />
           帧构造器
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          title={theme === 'dark' ? '切换到主体（浅色）模式' : '切换到深色模式'}
+          onClick={toggleTheme}
+        >
+          {theme === 'dark' ? <SunIcon size={15} /> : <MoonIcon size={15} />}
         </button>
         <button type="button" className="icon-btn" title="全局设置" onClick={() => openDialog({ kind: 'settings' })}>
           <SettingsIcon size={15} />

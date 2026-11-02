@@ -57,6 +57,24 @@ function isTransitionToward(current: DeviceState | undefined, target: DeviceStat
   return false;
 }
 
+/** 到位态对应的「动作中」态：点击后先报动作中，动画走完再报到位 */
+const MOVING_OF_SETTLED: Partial<Record<DeviceState, DeviceState>> = {
+  closed: 'closing',
+  open: 'opening',
+  locked: 'locking',
+  unlocked: 'unlocking',
+};
+
+/** 动作中态对应的到位态：动画期间对外仍上报动作前的到位状态 */
+const SETTLED_OF_MOVING: Partial<Record<DeviceState, DeviceState>> = {
+  closing: 'closed',
+  opening: 'open',
+  locking: 'locked',
+  unlocking: 'unlocked',
+};
+
+const settledOf = (state: DeviceState | undefined) => (state ? (SETTLED_OF_MOVING[state] ?? state) : undefined);
+
 let pendingSeq = 0;
 
 export class ModuleSession {
@@ -79,6 +97,9 @@ export class ModuleSession {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private stableTimer: NodeJS.Timeout | null = null;
   private stateDebounce: NodeJS.Timeout | null = null;
+  /** 动作中 → 到位的延时表：塔图动画播完后才上报到位。
+   *  from 为该设备动作前的到位态，动画期间 0x10 仍按它上报 */
+  private settleTimers = new Map<DeviceKind, { timer: NodeJS.Timeout; state: DeviceState; from?: DeviceState }>();
 
   constructor(
     public readonly moduleId: number,
@@ -160,6 +181,8 @@ export class ModuleSession {
     this.runtime.connectedAt = null;
     this.runtime.nextRetryAt = null;
     if (manual) this.runtime.error = null;
+    /* 断链时把还在「动作中」的设备直接落到到位态，避免按钮一直停在「合闸中」 */
+    this.flushSettleTimers();
     this.deps.emitState();
   }
 
@@ -174,11 +197,63 @@ export class ModuleSession {
 
   setDevice(device: DeviceKind, state: DeviceState): void {
     this.removePendingForDevice(device);
-    this.applyDeviceState(device, state, 'manual');
+    this.cancelSettle(device);
+    /* 已经是该状态：不重复播一遍动作 */
+    if (this.module.states[device] === state) return;
+    /* 两种写法都接受：目标到位态（closed…）或动作中态（closing…），统一按「动作中 → 到位」播放，
+     * 到位信号等塔图动画（与设置里的时长一致）播放结束之后再发 */
+    const moving = MOVING_OF_SETTLED[state] ?? state;
+    const target = MOVING_OF_SETTLED[state] ?? SETTLED_OF_MOVING[moving];
+    if (!target) {
+      this.applyDeviceState(device, state, 'manual');
+      return;
+    }
+    /* 动作开始：设备切到「合闸中 / 分闸中 / 闭锁中 / 开锁中」，塔图动画同步启动；
+     * 此时不发 0x10 到位帧（对外仍按动作前的到位态上报） */
+    const from = settledOf(this.module.states[device]);
+    this.applyDeviceState(device, moving, 'manual', undefined, false);
+    this.settleTimers.set(device, {
+      state: target,
+      from,
+      timer: setTimeout(() => {
+        this.settleTimers.delete(device);
+        if (this.disposed) return;
+        this.applyDeviceState(device, target, 'manual');
+      }, this.animMsFor(device)),
+    });
+  }
+
+  /** 塔图里该设备的动画时长（毫秒）：融冰锁 animLockSec、融冰刀闸 animIceSec、其余 animSwitchSec */
+  private animMsFor(device: DeviceKind): number {
+    const config = this.config;
+    const sec = device === 'iceLock' ? config.animLockSec : device === 'iceSwitch' ? config.animIceSec : config.animSwitchSec;
+    return Math.max(300, sec * 1000);
+  }
+
+  /** 取消某设备尚未播完的到位延时（重新下发指令 / 平台确认到位时） */
+  private cancelSettle(device: DeviceKind): void {
+    const running = this.settleTimers.get(device);
+    if (running) clearTimeout(running.timer);
+    this.settleTimers.delete(device);
+  }
+
+  /** 立即把还在等待到位的设备落到目标态（断链时用，不再发帧） */
+  private flushSettleTimers(): void {
+    if (this.settleTimers.size === 0) return;
+    const entries = [...this.settleTimers];
+    this.settleTimers.clear();
+    for (const [device, entry] of entries) {
+      clearTimeout(entry.timer);
+      this.deps.patchModule(this.moduleId, (module) => {
+        module.states = { ...module.states, [device]: entry.state };
+      });
+    }
   }
 
   preset(states: Partial<Record<DeviceKind, DeviceState>>): void {
     this.clearPending();
+    this.settleTimers.forEach((entry) => clearTimeout(entry.timer));
+    this.settleTimers.clear();
     this.deps.patchModule(this.moduleId, (module) => {
       module.states = { ...module.states, ...states };
     });
@@ -197,6 +272,7 @@ export class ModuleSession {
     const item = this.runtime.pending.find((entry) => entry.id === id);
     if (!item) return;
     this.removePending(id);
+    this.cancelSettle(item.device);
     this.applyDeviceState(item.device, ACTION_TARGET[item.action], 'platform', item.label);
   }
 
@@ -267,7 +343,13 @@ export class ModuleSession {
     });
   }
 
-  private applyDeviceState(device: DeviceKind, state: DeviceState, source: 'platform' | 'manual', label?: string): void {
+  private applyDeviceState(
+    device: DeviceKind,
+    state: DeviceState,
+    source: 'platform' | 'manual',
+    label?: string,
+    report = true,
+  ): void {
     this.deps.patchModule(this.moduleId, (module) => {
       module.states = { ...module.states, [device]: state };
     });
@@ -280,7 +362,7 @@ export class ModuleSession {
       state,
       detail: label ?? `${device} → ${state}（${source}）`,
     });
-    this.queueStatus();
+    if (report) this.queueStatus();
     this.deps.emitState();
   }
 
@@ -356,26 +438,11 @@ export class ModuleSession {
       };
       this.runtime.pending.push(item);
       if (config.autoMode && !item.conflict) {
-        if (config.autoParallel) {
-          this.scheduleAuto(item);
-        } else {
-          this.autoQueue.push(item.id);
-          this.pumpAutoQueue();
-        }
+        this.autoQueue.push(item.id);
+        this.pumpAutoQueue();
       }
     }
     this.deps.emitState();
-  }
-
-  private scheduleAuto(item: PendingAction): void {
-    const delay = this.config.autoDelaySec * 1000;
-    item.dueAt = Date.now() + delay;
-    const timer = setTimeout(() => {
-      this.autoTimers.delete(item.id);
-      this.acceptPending(item.id);
-      this.deps.emitState();
-    }, delay);
-    this.autoTimers.set(item.id, timer);
   }
 
   private pumpAutoQueue(): void {
@@ -484,7 +551,12 @@ export class ModuleSession {
   private sendStatus(): void {
     const module = this.module;
     const config = this.config;
-    const data = encodeStatus(module.protocol, module.states, {
+    /* 动作中的设备仍按动作前的到位态上报，周期帧与到位帧都只在动画结束后翻转 */
+    const states = { ...module.states };
+    this.settleTimers.forEach((entry, device) => {
+      if (entry.from) states[device] = entry.from;
+    });
+    const data = encodeStatus(module.protocol, states, {
       networkError: config.networkError,
       controlMode: config.controlMode,
       linkType: config.linkType,

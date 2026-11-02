@@ -162,15 +162,7 @@ export function SettingsDialog() {
                   checked={draft.autoMode}
                   onChange={(event) => update('autoMode', event.target.checked)}
                 />
-                自动模式：平台指令延时后自动到位
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={draft.autoParallel}
-                  onChange={(event) => update('autoParallel', event.target.checked)}
-                />
-                并行执行（否则串行）
+                自动模式：平台指令延时后自动到位（串行执行）
               </label>
               <label className="check">
                 <input

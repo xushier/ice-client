@@ -30,7 +30,6 @@ export interface ServerConfig {
   alignHourly: boolean;
   autoMode: boolean;
   autoDelaySec: number;
-  autoParallel: boolean;
   autoReconnect: boolean;
   controlMode: ControlMode;
   linkType: LinkType;
