@@ -1,0 +1,17 @@
+services:
+  ice-client:
+    image: ghcr.io/xushier/ice-client:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ice-client
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATA_DIR: /data
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/data
