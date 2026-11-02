@@ -3,3 +3,11 @@ dist/
 data/
 *.log
 .DS_Store
+
+# 本地资料，不随仓库推送
+DESIGN.md
+memory*.md
+/*.pdf
+/*.docx
+/*.htm
+融冰指令生成器.html
