@@ -331,6 +331,7 @@ const FOCUS_VIEWS: Array<{ view: TowerViewKey; label: string }> = [
   { view: 'jumper', label: '跳线 / 引流器' },
   { view: 'ground1', label: '接地刀闸' },
   { view: 'phase1', label: '选相 1' },
+  { view: 'phase2', label: '选相 2' },
 ];
 
 interface TowerFocusProps {

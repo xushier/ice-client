@@ -200,25 +200,37 @@ export class ModuleSession {
     this.cancelSettle(device);
     /* 已经是该状态：不重复播一遍动作 */
     if (this.module.states[device] === state) return;
-    /* 两种写法都接受：目标到位态（closed…）或动作中态（closing…），统一按「动作中 → 到位」播放，
-     * 到位信号等塔图动画（与设置里的时长一致）播放结束之后再发 */
-    const moving = MOVING_OF_SETTLED[state] ?? state;
-    const target = MOVING_OF_SETTLED[state] ?? SETTLED_OF_MOVING[moving];
+    /* 两种写法都接受：目标到位态（closed…）或动作中态（closing…） */
+    const target = MOVING_OF_SETTLED[state] ? state : SETTLED_OF_MOVING[state];
     if (!target) {
       this.applyDeviceState(device, state, 'manual');
       return;
     }
-    /* 动作开始：设备切到「合闸中 / 分闸中 / 闭锁中 / 开锁中」，塔图动画同步启动；
-     * 此时不发 0x10 到位帧（对外仍按动作前的到位态上报） */
+    this.beginTransition(device, target, 'manual');
+  }
+
+  /** 开始一次动作：设备切到「动作中」，塔图动画同步启动，此时不发 0x10 到位帧；
+   *  等动画（与设置里的时长一致）播完后再切到到位态并上报 */
+  private beginTransition(
+    device: DeviceKind,
+    target: DeviceState,
+    source: 'platform' | 'manual',
+    label?: string,
+  ): void {
+    const moving = MOVING_OF_SETTLED[target];
+    if (!moving) {
+      this.applyDeviceState(device, target, source, label);
+      return;
+    }
     const from = settledOf(this.module.states[device]);
-    this.applyDeviceState(device, moving, 'manual', undefined, false);
+    this.applyDeviceState(device, moving, source, label, false);
     this.settleTimers.set(device, {
       state: target,
       from,
       timer: setTimeout(() => {
         this.settleTimers.delete(device);
         if (this.disposed) return;
-        this.applyDeviceState(device, target, 'manual');
+        this.applyDeviceState(device, target, source, label);
       }, this.animMsFor(device)),
     });
   }
@@ -254,6 +266,7 @@ export class ModuleSession {
     this.clearPending();
     this.settleTimers.forEach((entry) => clearTimeout(entry.timer));
     this.settleTimers.clear();
+    const before = { ...this.module.states };
     this.deps.patchModule(this.moduleId, (module) => {
       module.states = { ...module.states, ...states };
     });
@@ -264,7 +277,21 @@ export class ModuleSession {
       kind: 'device',
       detail: '一键切换设备状态',
     });
-    this.queueStatus();
+    /* 一键切换同样要等各设备动画播完再上报到位帧：按各自动画时长登记，
+     * 最后一个播完时发整帧；期间 0x10 仍按切换前的状态上报 */
+    (Object.entries(states) as Array<[DeviceKind, DeviceState]>).forEach(([device, target]) => {
+      if (!MOVING_OF_SETTLED[target]) return;
+      this.settleTimers.set(device, {
+        state: target,
+        from: settledOf(before[device]),
+        timer: setTimeout(() => {
+          this.settleTimers.delete(device);
+          if (this.disposed) return;
+          if (this.settleTimers.size === 0) this.queueStatus();
+        }, this.animMsFor(device)),
+      });
+    });
+    if (this.settleTimers.size === 0) this.queueStatus();
     this.deps.emitState();
   }
 
@@ -273,7 +300,8 @@ export class ModuleSession {
     if (!item) return;
     this.removePending(id);
     this.cancelSettle(item.device);
-    this.applyDeviceState(item.device, ACTION_TARGET[item.action], 'platform', item.label);
+    /* 平台下发 / 自动确认同样先播动作动画，播完才上报到位帧 */
+    this.beginTransition(item.device, ACTION_TARGET[item.action], 'platform', item.label);
   }
 
   ignorePending(id: string): void {
