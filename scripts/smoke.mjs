@@ -243,6 +243,8 @@ async function main() {
     child.stdout.on('data', (chunk) => logs.push(String(chunk)));
     child.stderr.on('data', (chunk) => logs.push(String(chunk)));
     await waitHealth();
+    /* 动画时长压到 1s，冒烟测试才能在一个等待窗口内看到「动作中 → 到位」的完整过程 */
+    await call('PATCH', '/api/config', { animSwitchSec: 1, animLockSec: 1, animIceSec: 1 });
 
     section('上线注册 + 连接后历史整包（默认不发 0x30）');
     const createMark = platform.mark();
@@ -280,8 +282,11 @@ async function main() {
     const acceptMark = platform.mark();
     const accept = await call('POST', `/api/modules/${MODULE_ID}/pending/${pending.id}/accept`);
     ok(accept.status === 200, '接受待动作返回 200');
-    const closed = await waitModule((item) => item.states.iceSwitch === 'closed', 'iceSwitch 合闸到位');
-    ok(closed.states.iceSwitch === 'closed', '接受后 iceSwitch 变为 closed');
+    /* 动作期间设备处于「合闸中」，等动画播完才会切到位并上报 0x10 */
+    await platform.expectNone(acceptMark, 0x10, 700);
+    ok(true, '接受后动画期间不立即上报到位帧');
+    const closed = await waitModule((item) => item.states.iceSwitch === 'closed', 'iceSwitch 合闸到位', 8000);
+    ok(closed.states.iceSwitch === 'closed', '动画结束后 iceSwitch 变为 closed');
     const afterAccept = await platform.wait(acceptMark, [0x10]);
     ok((afterAccept.get(0x10).data[0] & 0x10) !== 0, '状态帧回传融冰刀闸合到位位');
 
