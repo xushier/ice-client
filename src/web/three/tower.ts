@@ -568,12 +568,14 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
   /* 实物间隔棒实例位姿：环面法线（模型 +Z）对齐导线切线，六臂与六根子导线同相位 */
   const spacerSlots: Array<{ position: THREE.Vector3; quaternion: THREE.Quaternion }> = [];
 
-  /** 6 根子导线（沿切线法平面均布）+ 沿线每隔数米一个实物间隔棒 */
+  /** 6 根子导线（沿切线法平面均布）+ 沿线每隔数米一个实物间隔棒。
+   *  extraSpanZ：在水平导线上按指定 Z 坐标额外补间隔棒（靠近塔身的分段原本被 skipSpacer 跳过） */
   function bundle(
     points: THREE.Vector3[],
     spacerEvery = 4.2,
     segments = 96,
     skipSpacer?: (position: THREE.Vector3) => boolean,
+    extraSpanZ?: number[],
   ) {
     if (points.length < 2) return;
     const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.25);
@@ -614,6 +616,38 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
       spacerSlots.push({
         position,
         quaternion: new THREE.Quaternion().setFromRotationMatrix(basis),
+      });
+    }
+    /* 靠近塔身的分段按指定 Z 坐标补间隔棒：在曲线上找最接近的点，
+     *  仍用同一套法平面基向量，保证六爪与六根子导线同相位 */
+    if (extraSpanZ) {
+      const probe = new THREE.Vector3();
+      const fine = Math.max(200, steps * 2);
+      extraSpanZ.forEach((zTarget) => {
+        let bestU = -1;
+        let bestDist = Infinity;
+        for (let s = 0; s <= fine; s += 1) {
+          const u = s / fine;
+          curve.getPointAt(u, probe);
+          const dist = Math.abs(probe.z - zTarget);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestU = u;
+          }
+        }
+        if (bestU < 0) return;
+        const position = curve.getPointAt(bestU);
+        curve.getTangentAt(bestU, tan).normalize();
+        xAxis.set(1, 0, 0).addScaledVector(tan, -tan.x);
+        if (xAxis.lengthSq() < 0.02) xAxis.set(0, 1, 0).addScaledVector(tan, -tan.y);
+        xAxis.normalize();
+        yAxis.crossVectors(tan, xAxis).normalize();
+        xAxis.crossVectors(yAxis, tan).normalize();
+        basis.makeBasis(xAxis, yAxis, tan);
+        spacerSlots.push({
+          position,
+          quaternion: new THREE.Quaternion().setFromRotationMatrix(basis),
+        });
       });
     }
   }
@@ -806,6 +840,9 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
       (position) =>
         position.y <= -24 ||
         (Math.abs(position.z) > 14 && Math.abs(position.z) < 26),
+      /* 靠近塔身的水平段（|z| 13.6~26）原本没有间隔棒：按等间距补三个，
+       *  与远离塔身那三个同型号、同缩放，位姿取自同一条导线的曲线 */
+      [16.7, 19.8, 22.9, -16.7, -19.8, -22.9],
     );
   });
 
