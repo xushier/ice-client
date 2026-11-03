@@ -257,7 +257,8 @@ const VIEW_PRESETS: Record<
   jumper: { position: [16.6, -30.2, 6.6], target: [12.4, -25.4 + JUMPER_LIFT, 0.3] },
   phase1: { position: [4.2, -53.3, 9.7], target: [2.4, -54.3, 6.12] },
   phase2: { position: [-4.2, -53.3, 9.7], target: [-2.4, -54.3, 6.12] },
-  phase3: { position: [4.2, -53.3, 9.7], target: [2.4, -54.3, 6.12] },
+  /* 选相 3：安装在两根选相支柱中间，机位略偏 +X，能看到前后两根绝缘支柱 */
+  phase3: { position: [1.2, -53.3, 9.7], target: [0, -54.3, 6.12] },
   ground1: { position: [9.8, -52.7, 10.2], target: [5.3, -54.05, 6.12] },
   ground2: { position: [-9.8, -52.7, 10.2], target: [-5.3, -54.05, 6.12] },
 };
@@ -908,6 +909,9 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
 
   /* ---------- 设备状态指示球 ---------- */
   const indicators: Partial<Record<DeviceKind, THREE.MeshStandardMaterial>> = {};
+  /* 状态色球与点击热区：选相 3 只在 MG500 上存在，日后再由 applyVisuals 按模块设备表显隐 */
+  const indicatorMeshes: Partial<Record<DeviceKind, THREE.Mesh>> = {};
+  const indicatorHits: Partial<Record<DeviceKind, THREE.Mesh>> = {};
   /* 状态色球会随状态改色，不参与明亮模式压暗，否则主题切换会把颜色改回去 */
   const indicatorMats = new Set<THREE.MeshStandardMaterial>();
   const addIndicator = (
@@ -930,6 +934,7 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
       mesh.userData.kind = kind;
       scene.add(mesh);
       indicators[kind] = material;
+      indicatorMeshes[kind] = mesh;
       indicatorMats.add(material);
     }
     const hit = new THREE.Mesh(
@@ -938,11 +943,13 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
     );
     hit.position.copy(position);
     hit.userData.kind = kind;
+    indicatorHits[kind] = hit;
     scene.add(hit);
   };
   /* 选相刀闸与接地刀闸同在塔底第一个水平角钢平面，指示球浮在顶部闸刀上方 */
   addIndicator('phase1', V(PHASE_X, PHASE_BLADE_Y + 0.12, PHASE_Z), 1.0, true, 0.09);
   addIndicator('phase2', V(-PHASE_X, PHASE_BLADE_Y + 0.12, PHASE_Z), 1.0, true, 0.09);
+  addIndicator('phase3', V(0, PHASE_BLADE_Y + 0.12, PHASE_Z), 1.0, true, 0.09);
   /* 接地刀闸已有实物模型（模型网格本身带点击目标），锚点对齐绝缘子上方的接线螺栓 */
   addIndicator('ground1', GROUND_TERMINAL.clone(), 1.3, false);
 
@@ -963,6 +970,7 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
     { kind: 'ground1', label: '接地刀闸', anchor: GROUND_TERMINAL.clone(), offset: [0, -46] },
     { kind: 'phase1', label: '选相 1', anchor: V(PHASE_X, PHASE_BLADE_Y + 0.12, PHASE_Z), offset: [0, -34] },
     { kind: 'phase2', label: '选相 2', anchor: V(-PHASE_X, PHASE_BLADE_Y + 0.12, PHASE_Z), offset: [0, -34] },
+    { kind: 'phase3', label: '选相 3', anchor: V(0, PHASE_BLADE_Y + 0.12, PHASE_Z), offset: [0, -34] },
   ];
   const tags: TagEntry[] = TAG_DEFS.map((def) => {
     const el = document.createElement('button');
@@ -1033,6 +1041,8 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
   const phaseSteelMat = new THREE.MeshStandardMaterial({ color: 0xdde6f2, metalness: 0.65, roughness: 0.32 });
   deviceMaterials.push(phaseInsulatorMat, phaseSteelMat);
   interface BladeRig {
+    /** 整组模型：MG400 只有两组选相刀闸，缺 phase3 时整组隐藏 */
+    group: THREE.Object3D;
     pivot: THREE.Object3D;
     /** 分闸旋转方向：+1 向 +X 摆开，-1 向 -X 摆开 */
     sign: number;
@@ -1079,10 +1089,12 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
     pivot.add(pin);
     group.add(pivot);
     scene.add(group);
-    phaseBlades.set(kind, { pivot, sign, progress: 0, from: 0, to: 0, start: 0, duration: 0, primed: false });
+    phaseBlades.set(kind, { group, pivot, sign, progress: 0, from: 0, to: 0, start: 0, duration: 0, primed: false });
   };
   addPhaseSwitch('phase1', PHASE_X);
   addPhaseSwitch('phase2', -PHASE_X);
+  /* 选相 3：MG500 的第三相，居中安装在两根选相支柱之间 */
+  addPhaseSwitch('phase3', 0);
 
   /* ---------- 绝缘子串（V 形跳线串 + 横担前后水平耐张串，统一用实物模型） ---------- */
   const insulatorMat = new THREE.MeshStandardMaterial({ color: 0x6e4a3a, metalness: 0.16, roughness: 0.72 });
@@ -1518,10 +1530,15 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
     const hits = raycaster.intersectObjects(scene.children, true);
     for (const hit of hits) {
       let node: THREE.Object3D | null = hit.object;
+      let kind: DeviceKind | undefined;
+      let visible = true;
       while (node) {
-        if (node.userData.kind) return node.userData.kind as DeviceKind;
+        if (!node.visible) visible = false;
+        if (node.userData.kind) kind = node.userData.kind as DeviceKind;
         node = node.parent;
       }
+      /* 隐藏的设备（如 MG400 上不存在的选相 3）不参与点击 */
+      if (kind && visible) return kind;
     }
     return undefined;
   };
@@ -1597,12 +1614,20 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
   const applyVisuals = () => {
     if (!moduleRef) return;
     const module = moduleRef;
-    (['phase1', 'phase2', 'ground1'] as DeviceKind[]).forEach((kind) => {
+    (['phase1', 'phase2', 'phase3', 'ground1'] as DeviceKind[]).forEach((kind) => {
       const material = indicators[kind];
       if (!material) return;
       const color = colorOf(module, kind);
       material.color.set(color);
       material.emissive.set(color);
+    });
+    /* 选相 3 只在存在该设备的模块（MG500）上显示模型与点击热区 */
+    (['phase1', 'phase2', 'phase3'] as DeviceKind[]).forEach((kind) => {
+      const present = module.devices.includes(kind);
+      const rig = phaseBlades.get(kind);
+      if (rig) rig.group.visible = present;
+      if (indicatorMeshes[kind]) indicatorMeshes[kind]!.visible = present;
+      if (indicatorHits[kind]) indicatorHits[kind]!.visible = present;
     });
     /* 导电杆保持青色本体，不再随状态变色，避免被冲淡 */
     const locked = settle(module.states.iceLock) === 'locked';

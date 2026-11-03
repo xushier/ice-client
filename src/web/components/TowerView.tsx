@@ -323,15 +323,16 @@ function TowerCard({ module }: { module: ModuleDto }) {
   );
 }
 
-const FOCUS_VIEWS: Array<{ view: TowerViewKey; label: string }> = [
+const FOCUS_VIEWS: Array<{ view: TowerViewKey; label: string; device?: DeviceKind }> = [
   { view: 'overview', label: '全景' },
   { view: 'mid', label: '中景' },
   { view: 'iceSwitch', label: '融冰刀闸' },
   { view: 'iceLock', label: '融冰锁' },
   { view: 'jumper', label: '跳线 / 引流器' },
   { view: 'ground1', label: '接地刀闸' },
-  { view: 'phase1', label: '选相 1' },
-  { view: 'phase2', label: '选相 2' },
+  { view: 'phase1', label: '选相 1', device: 'phase1' },
+  { view: 'phase2', label: '选相 2', device: 'phase2' },
+  { view: 'phase3', label: '选相 3', device: 'phase3' },
 ];
 
 interface TowerFocusProps {
@@ -412,7 +413,7 @@ function TowerFocus({ module, config, theme, onToggle, onClose }: TowerFocusProp
         >
           平移
         </button>
-        {FOCUS_VIEWS.map((item) => (
+        {FOCUS_VIEWS.filter((item) => !item.device || module.devices.includes(item.device)).map((item) => (
           <button
             key={item.view}
             type="button"
