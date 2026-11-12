@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ProtocolId } from '../../protocol/types';
 import type { DeviceKind } from '../../protocol/types';
 import { DEVICE_META, PROFILES } from '../../protocol/profiles';
@@ -22,6 +22,9 @@ export function ModuleDialog({ module }: { module?: ModuleDto }) {
   const [portText, setPortText] = useState(String(module?.port ?? 3000));
   const [devices, setDevices] = useState<DeviceKind[]>(module?.devices ?? [...PROFILES.mg500.devices]);
   const [autoConnect, setAutoConnect] = useState(module?.autoConnect ?? true);
+  /* 遮罩只在「按下点就在遮罩上、抬起也仍在遮罩上」时才关闭。
+   *  否则在输入框里拖选文字、鼠标滑出对话框后再松开，click 会落到遮罩上，窗口被误关 */
+  const backdropDown = useRef(false);
 
   const supported = PROFILES[protocol].devices;
 
@@ -104,7 +107,16 @@ export function ModuleDialog({ module }: { module?: ModuleDto }) {
   };
 
   return (
-    <div className="overlay" onClick={closeDialog}>
+    <div
+      className="overlay"
+      onMouseDown={(event) => {
+        backdropDown.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (backdropDown.current && event.target === event.currentTarget) closeDialog();
+        backdropDown.current = false;
+      }}
+    >
       <div className="dialog" onClick={(event) => event.stopPropagation()}>
         <div className="dialog-head">
           <span className="dialog-title">{editing ? `编辑模块 #${module?.id}` : '新建终端模块'}</span>
