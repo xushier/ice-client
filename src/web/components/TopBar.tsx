@@ -72,14 +72,24 @@ export function TopBar() {
         </span>
       </div>
 
-      <div className="seg" role="tablist" aria-label="视图切换">
-        <button type="button" className={view === 'card' ? 'on' : ''} onClick={() => setView('card')}>
+      <div className="seg" role="tablist" aria-label="视图切换" data-tour="view-switch">
+        <button
+          type="button"
+          className={view === 'card' ? 'on' : ''}
+          data-tour="view-card"
+          onClick={() => setView('card')}
+        >
           <GridIcon size={12} />
-          卡片
+          按钮视图
         </button>
-        <button type="button" className={view === 'tower' ? 'on' : ''} onClick={() => setView('tower')}>
+        <button
+          type="button"
+          className={view === 'tower' ? 'on' : ''}
+          data-tour="view-tower"
+          onClick={() => setView('tower')}
+        >
           <TowerIcon size={12} />
-          塔视图
+          铁塔视图
         </button>
       </div>
 

@@ -52,15 +52,16 @@ interface UiState {
 }
 
 function readView(): ViewMode {
-  /* 每次打开页面都从塔视图进入（用户仍可在顶栏切到卡片视图，但刷新后回到塔视图） */
+  /* 每次打开页面都从铁塔视图进入（用户仍可在顶栏切到按钮视图，但刷新后回到铁塔视图） */
   return 'tower';
 }
 
 function readTheme(): ThemeMode {
+  /* 首次访问默认明亮模式；用户手动切换后沿用其选择 */
   try {
-    return localStorage.getItem('ice-theme') === 'light' ? 'light' : 'dark';
+    return localStorage.getItem('ice-theme') === 'dark' ? 'dark' : 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }
 

@@ -1449,8 +1449,7 @@ button:disabled {
   animation: fadein 0.16s ease;
 }
 
-.tower-focus-head,
-.tower-focus-bar {
+.tower-focus-head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1459,15 +1458,55 @@ button:disabled {
   border-bottom: 1px solid var(--border-soft);
 }
 
-.tower-focus-bar {
-  border-bottom: none;
-  border-top: 1px solid var(--border-soft);
-}
-
 .tower-focus-stage {
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+/* 全屏下「设备视角」「设备操作」各一张悬浮卡片，放在左右下角，不再挤在底部一行 */
+.tower-float {
+  position: absolute;
+  bottom: 18px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-width: min(48vw, 460px);
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: var(--tag-bg);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
+}
+
+.tower-float-left {
+  left: 18px;
+}
+
+.tower-float-right {
+  right: 18px;
+}
+
+.tower-float-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.tower-float-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tower-float-body.tower-float-col {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  min-width: 168px;
 }
 
 .tower-focus-stage .tower-canvas {
@@ -1503,11 +1542,26 @@ button:disabled {
   padding: 10px 12px 12px;
 }
 
+.tower-group-title {
+  margin: 0 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
 .tower-devices {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  margin-bottom: 8px;
+  margin-bottom: 9px;
+}
+
+.tower-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 9px;
 }
 
 .tower-chip {
@@ -1954,4 +2008,97 @@ button:disabled {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---------- 首次访问引导 ---------- */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+}
+
+.tour-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 12, 20, 0.55);
+}
+
+/* 聚光灯：用超大外阴影压暗周边，挖出目标区域 */
+.tour-spot {
+  position: absolute;
+  border-radius: 10px;
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(6, 12, 20, 0.55), 0 0 22px rgba(56, 189, 248, 0.5);
+  transition: left 0.18s ease, top 0.18s ease, width 0.18s ease, height 0.18s ease;
+  pointer-events: none;
+}
+
+.tour-pop {
+  position: absolute;
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+  animation: fadein 0.18s ease;
+}
+
+.tour-arrow {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.tour-arrow.top {
+  transform: rotate(225deg);
+}
+
+.tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.tour-step {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.tour-skip {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tour-skip:hover {
+  color: var(--text);
+}
+
+.tour-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.tour-body {
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
 }

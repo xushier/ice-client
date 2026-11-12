@@ -6,6 +6,7 @@ import { TowerGrid } from './components/TowerView';
 import { FrameMonitor } from './components/FrameMonitor';
 import { FrameBuilder } from './components/FrameBuilder';
 import { ModuleDialog } from './components/ModuleDialog';
+import { Onboarding } from './components/Onboarding';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Toasts } from './components/Toasts';
 
@@ -44,6 +45,7 @@ export function App() {
       {dialog?.kind === 'builder' ? <FrameBuilder initialModuleId={dialog.moduleId} /> : null}
 
       <Toasts />
+      <Onboarding />
     </div>
   );
 }
