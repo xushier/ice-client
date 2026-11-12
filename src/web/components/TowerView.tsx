@@ -193,6 +193,7 @@ function TowerCard({ module }: { module: ModuleDto }) {
           theme={theme}
           onToggle={toggleDevice}
           focus={jump}
+          autoFollow={config.autoMode}
         />
         <div className="tower-hint">拖动旋转 · 滚轮缩放 · 右键平移 · 点击设备切换</div>
       </div>
@@ -397,7 +398,7 @@ function TowerFocus({ module, config, theme, onToggle, onClose }: TowerFocusProp
         <span className={`tag${module.protocol === 'mg500' ? ' tag-purple' : ''}`}>
           {module.protocol.toUpperCase()}
         </span>
-        <span className="faint mono">
+        <span className="faint" style={{ fontSize: 11.5 }}>
           #{module.id} · {sideLabel(module.id)}
         </span>
         <span className="grow" />
@@ -423,41 +424,43 @@ function TowerFocus({ module, config, theme, onToggle, onClose }: TowerFocusProp
         </div>
 
         <div className="tower-float tower-float-left">
-          <div className="tower-float-title">设备视角</div>
-          <div className="tower-float-body tower-float-col">
-            <button
-              type="button"
-              className={`btn btn-sm${panMode ? ' btn-primary' : ''}`}
-              title="切换左键拖动为平移，便于把塔顶 / 塔底拖到画面中心再放大"
-              onClick={() => setPanMode((value) => !value)}
-            >
-              平移
-            </button>
-            {FOCUS_VIEWS.filter((item) => !item.device || module.devices.includes(item.device)).map((item) => (
-              <button
-                key={item.view}
-                type="button"
-                className={`btn btn-sm${focus.view === item.view ? ' btn-primary' : ''}`}
-                onClick={() => setFocus((prev) => ({ view: item.view, seq: prev.seq + 1 }))}
-              >
-                {item.label}
-              </button>
-            ))}
+          <div className="tower-float-card">
+            <div className="tower-float-title">设备操作</div>
+            <div className="tower-float-body tower-float-col">
+              {module.devices.map((kind) => (
+                <DeviceChip
+                  key={kind}
+                  kind={kind}
+                  state={module.states[kind]}
+                  durationSec={durationFor(kind, config)}
+                  onClick={() => onToggle(kind)}
+                />
+              ))}
+            </div>
           </div>
-        </div>
 
-        <div className="tower-float tower-float-right">
-          <div className="tower-float-title">设备操作</div>
-          <div className="tower-float-body tower-float-col">
-            {module.devices.map((kind) => (
-              <DeviceChip
-                key={kind}
-                kind={kind}
-                state={module.states[kind]}
-                durationSec={durationFor(kind, config)}
-                onClick={() => onToggle(kind)}
-              />
-            ))}
+          <div className="tower-float-card">
+            <div className="tower-float-title">设备视角</div>
+            <div className="tower-float-body tower-float-col">
+              <button
+                type="button"
+                className={`btn btn-sm${panMode ? ' btn-primary' : ''}`}
+                title="切换左键拖动为平移，便于把塔顶 / 塔底拖到画面中心再放大"
+                onClick={() => setPanMode((value) => !value)}
+              >
+                平移
+              </button>
+              {FOCUS_VIEWS.filter((item) => !item.device || module.devices.includes(item.device)).map((item) => (
+                <button
+                  key={item.view}
+                  type="button"
+                  className={`btn btn-sm${focus.view === item.view ? ' btn-primary' : ''}`}
+                  onClick={() => setFocus((prev) => ({ view: item.view, seq: prev.seq + 1 }))}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>

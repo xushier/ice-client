@@ -520,7 +520,7 @@ button:disabled {
 .sidebar-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
   padding: 12px 12px 8px;
   color: var(--faint);
   font-size: 11px;
@@ -528,11 +528,31 @@ button:disabled {
   letter-spacing: 0.6px;
   text-transform: uppercase;
   white-space: nowrap;
+  /* 只让右内边距随宽度变化：按钮始终贴右侧，随侧栏一起连续左移，不会先跳到中间 */
+  transition: padding-right 0.18s ease;
+}
+
+/* 收起时标题立即让出宽度（不参与布局动画），按钮位置只由侧栏宽度决定 */
+.sidebar-head-title {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 220px;
+  margin-right: 8px;
+  overflow: hidden;
 }
 
 .sidebar.collapsed .sidebar-head {
-  justify-content: center;
-  padding: 12px 6px 8px;
+  padding-right: 16px;
+}
+
+.sidebar.collapsed .sidebar-head-title {
+  max-width: 0;
+  margin-right: 0;
+}
+
+.sidebar-collapse {
+  border-color: var(--border);
+  background: var(--chip-bg);
 }
 
 .sidebar-list {
@@ -544,15 +564,10 @@ button:disabled {
   gap: 3px;
 }
 
-.sidebar.collapsed .sidebar-list {
-  padding: 2px 6px 10px;
-  align-items: center;
-}
-
 .module-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
   width: 100%;
   min-height: 38px;
   padding: 6px 8px;
@@ -561,7 +576,12 @@ button:disabled {
   background: transparent;
   color: var(--muted);
   text-align: left;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  /* 收起时只把左内边距加大，圆点随侧栏一起线性滑到正中，不产生来回摆动 */
+  transition: background 0.15s, border-color 0.15s, color 0.15s, padding-left 0.18s ease;
+}
+
+.sidebar.collapsed .module-item {
+  padding-left: 16.5px;
 }
 
 .module-item:hover {
@@ -600,8 +620,23 @@ button:disabled {
 }
 
 .module-item-main {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 220px;
+  max-height: 44px;
+  margin-left: 8px;
+  overflow: hidden;
+  /* 只让高度过渡，宽度立即归零：避免文字收缩与侧栏收缩不同步导致圆点左右摆动 */
+  transition: max-height 0.18s ease;
+}
+
+.sidebar.collapsed .module-item-main {
+  flex: 0 0 auto;
+  max-width: 0;
+  max-height: 0;
+  margin-left: 0;
 }
 
 .module-item-name {
@@ -616,6 +651,9 @@ button:disabled {
   font-size: 10.5px;
   color: var(--faint);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   margin-top: 1px;
 }
 
@@ -1385,11 +1423,18 @@ button:disabled {
   height: 100%;
 }
 
+/* 画布是相对定位、且排在提示文字之后，会盖住这些浮层：统一抬到上层并加模糊底 */
 .tower-hint {
   position: absolute;
   left: 12px;
   bottom: 8px;
-  color: var(--faint);
+  z-index: 3;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: var(--tag-bg);
+  backdrop-filter: blur(10px);
+  color: var(--muted-2);
   font-size: 10px;
   pointer-events: none;
   user-select: none;
@@ -1464,29 +1509,31 @@ button:disabled {
   min-height: 0;
 }
 
-/* 全屏下「设备视角」「设备操作」各一张悬浮卡片，放在左上 / 右上角，纵向排列 */
+/* 全屏下「设备操作」「设备视角」都收在左上角，纵向叠放，右侧完全留给模型 */
 .tower-float {
   position: absolute;
   top: 16px;
   z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 10px;
   max-width: min(48vw, 460px);
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-soft);
-  background: var(--tag-bg);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
 }
 
 .tower-float-left {
   left: 18px;
 }
 
-.tower-float-right {
-  right: 18px;
+.tower-float-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: var(--tag-bg);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
 }
 
 .tower-float-title {
@@ -1525,16 +1572,28 @@ button:disabled {
   position: absolute;
   left: 12px;
   top: 10px;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 3px 10px 3px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: var(--tag-bg);
+  backdrop-filter: blur(10px);
 }
 
 .tower-side {
   position: absolute;
   right: 12px;
   top: 10px;
-  color: var(--faint);
+  z-index: 3;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: var(--tag-bg);
+  backdrop-filter: blur(10px);
+  color: var(--muted-2);
   font-size: 10.5px;
 }
 

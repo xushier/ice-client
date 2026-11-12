@@ -18,14 +18,12 @@ export function Sidebar() {
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-head">
-        {collapsed ? null : (
-          <span style={{ flex: 1 }}>
-            模块 <span className="faint">({modules.length})</span>
-          </span>
-        )}
+        <span className="sidebar-head-title">
+          模块 <span className="faint">({modules.length})</span>
+        </span>
         <button
           type="button"
-          className="icon-btn"
+          className="icon-btn sidebar-collapse"
           onClick={toggleSidebar}
           title={collapsed ? '展开侧栏' : '收起侧栏'}
         >
@@ -51,14 +49,12 @@ export function Sidebar() {
               onClick={() => select(module.id)}
             >
               <span className={`dot ${dot}`} />
-              {collapsed ? null : (
-                <span className="module-item-main">
-                  <span className="module-item-name">{module.towerName}</span>
-                  <span className="module-item-sub">
-                    #{module.id} · {sideLabel(module.id)} · {module.protocol.toUpperCase()}
-                  </span>
+              <span className="module-item-main">
+                <span className="module-item-name">{module.towerName}</span>
+                <span className="module-item-sub">
+                  #{module.id} · {sideLabel(module.id)} · {module.protocol.toUpperCase()}
                 </span>
-              )}
+              </span>
             </button>
           );
         })}
