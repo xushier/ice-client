@@ -1464,10 +1464,10 @@ button:disabled {
   min-height: 0;
 }
 
-/* 全屏下「设备视角」「设备操作」各一张悬浮卡片，放在左右下角，不再挤在底部一行 */
+/* 全屏下「设备视角」「设备操作」各一张悬浮卡片，放在左上 / 右上角，纵向排列 */
 .tower-float {
   position: absolute;
-  bottom: 18px;
+  top: 16px;
   z-index: 3;
   display: flex;
   flex-direction: column;

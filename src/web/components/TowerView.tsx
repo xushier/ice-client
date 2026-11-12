@@ -308,7 +308,7 @@ function TowerCard({ module }: { module: ModuleDto }) {
           </button>
           <button
             type="button"
-            className="btn btn-sm btn-ghost"
+            className="btn btn-sm"
             onClick={() => openDialog({ kind: 'edit', moduleId: module.id })}
           >
             编辑
@@ -424,7 +424,7 @@ function TowerFocus({ module, config, theme, onToggle, onClose }: TowerFocusProp
 
         <div className="tower-float tower-float-left">
           <div className="tower-float-title">设备视角</div>
-          <div className="tower-float-body">
+          <div className="tower-float-body tower-float-col">
             <button
               type="button"
               className={`btn btn-sm${panMode ? ' btn-primary' : ''}`}

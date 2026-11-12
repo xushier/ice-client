@@ -1148,7 +1148,8 @@ export function createTowerView(host: HTMLElement, options: TowerOptions): Tower
           const length = dir.length();
           dir.normalize();
           leg.scale.setScalar(length / rawLength);
-          leg.quaternion.setFromUnitVectors(axis, dir);
+          /* 模型局部 +Y 是塔端（金具端）：让它朝上对准横担挂点，串体不能倒装 */
+          leg.quaternion.setFromUnitVectors(axis, dir.negate());
           leg.position.copy(top).add(bottom).multiplyScalar(0.5);
           leg.traverse((child) => {
             const mesh = child as THREE.Mesh;
